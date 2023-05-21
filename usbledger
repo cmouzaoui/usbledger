@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+
+import argparse
+from collections import namedtuple
+import csv
+from datetime import datetime
+from functools import reduce
+import json
+import re
+from os.path import exists
+
+
+RULES_FILENAME = "rules.json"
+RawTransaction = namedtuple("RawTransaction", ["date", "name", "amount"])
+LedgerEntry = namedtuple(
+    "LedgerEntry", ["date", "name", "credited", "debited", "amount", "comment"]
+)
+
+
+def get_config():
+    """parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description="Transform a US Bank transaction csv to a Ledger file"
+    )
+    # TODO: accept stdin as default
+    parser.add_argument("INFILE", help="Raw USBank transaction input file name")
+    parser.add_argument("ACCOUNT", help="Debited account as given in ledger")
+    # TODO: accept stdout as default
+    parser.add_argument("--outfile", default="entries.ledger")
+    return parser.parse_args()
+
+
+def get_trans(filename):
+    """read raw transactions from input file"""
+    with open(filename, "r", encoding="utf8") as infile:
+        reader = csv.reader(infile, quoting=csv.QUOTE_ALL)
+        _ = next(reader)
+        return [
+            RawTransaction(datetime.fromisoformat(date), name, int(float(amount) * 100))
+            for date, _, name, _, amount in reader
+        ]
+
+
+def create_rule(name):
+    res = input("Provide regex matching name: ")
+    if not re.match(res, name):
+        print("Rule does not match: ", res)
+        return create_rule(name)
+    return (res, default_rule())
+
+
+def default_rule():
+    return {"name": "", "other_party": "", "comment": ""}
+
+
+def get_or_create_rule(old_rules, name):
+    matches = [
+        (pattern, rule)
+        for pattern, rule in old_rules.items()
+        if re.match(pattern, name)
+    ]
+    if not matches:
+        print(f"No rule found for '{name}'.")
+        should_create = ask_yes_no("Create a rule?")
+        return create_rule(name) if should_create else (None, default_rule())
+    if len(matches) > 1:
+        raise Exception(f"{name} matched more than one rule: {matches}")
+    return matches[0]
+
+
+def ask_yes_no(prompt):
+    res = input(f"{prompt} (yes/no) ")
+    normalized = res.strip().lower()
+    if normalized == "yes":
+        return True
+    if normalized == "no":
+        return False
+    print("Unrecognized: ", res)
+    return ask_yes_no(prompt)
+
+
+def apply_rule(default, prompt):
+    res = input(f"Enter {prompt} ['{default}']: ")
+    if not res:
+        return default, False
+    should_save = ask_yes_no("Save rule?") if res != default else False
+    return res, should_save
+
+
+def print_transaction(transaction):
+    print("Date:", transaction.date)
+    print("Raw name:", transaction.name)
+    print("Amount:", transaction.amount)
+
+
+def process_entry(transaction, account, processed):
+    """use rules to add data to a raw transaction. update rules as needed"""
+    past, old_rules = processed
+    pattern, rule = get_or_create_rule(old_rules, transaction.name)
+    print("Processing transaction: ")
+    print_transaction(transaction)
+    name, save_name = apply_rule(rule["name"], "transaction name")
+    if save_name:
+        rule["name"] = name
+    comment, save_comment = apply_rule(rule["comment"], "comment")
+    if save_comment:
+        rule["comment"] = comment
+    other_party, save_party = apply_rule(rule["other_party"], "other party")
+    if save_party:
+        rule["other_party"] = other_party
+    if transaction.amount < 0:
+        credited = other_party
+        debited = account
+    else:
+        credited = account
+        debited = other_party
+    entry = LedgerEntry(
+        date=transaction.date,
+        name=name,
+        credited=credited,
+        debited=debited,
+        amount=abs(transaction.amount) / 100,
+        comment=comment,
+    )
+    return (past + [entry], update_rules(pattern, rule, old_rules))
+
+
+def update_rules(pattern, rule, old_rules):
+    return {**{pattern: rule}, **old_rules} if pattern else old_rules
+
+
+def get_rules():
+    """read a rules object from a file"""
+    if not exists(RULES_FILENAME):
+        print("Rules file {rules_filename} not found. Creating a new one")
+        return {}
+    with open(RULES_FILENAME, "r", encoding="utf8") as rules_file:
+        return json.load(rules_file)
+
+
+def save_rules(rules):
+    print("Saving rules")
+    with open(RULES_FILENAME, "w", encoding="utf8") as rules_file:
+        json.dump(rules, rules_file, indent=4)
+
+
+def process_trans(raw, account):
+    """process bulk sequence of transactions and update rules"""
+    rules = get_rules()
+    return reduce(
+        lambda x, t: process_entry(t, account, x),
+        raw,
+        ([], rules),
+    )
+
+
+def write_entry(entry):
+    """format output string for a transaction"""
+    comment = f"    ; {entry.comment}" if entry.comment else ""
+    date = entry.date.strftime("%Y/%m/%d")
+    return "\n".join(
+        [
+            f"{date} {entry.name}{comment}",
+            f"    {entry.credited}    ${entry.amount:.2f}",
+            f"    {entry.debited}",
+        ]
+    )
+
+
+def write_trans(data, filename):
+    """write out all transactions to file"""
+    outstr = "\n\n".join(write_entry(entry) for entry in data)
+    with open(filename, "w", encoding="utf8") as outfile:
+        outfile.write(outstr)
+
+
+def main():
+    """parse args, read raw file, process, and write"""
+    args = get_config()
+    new_trans_raw = get_trans(args.INFILE)
+    processed, new_rules = process_trans(new_trans_raw, args.ACCOUNT)
+    save_rules(new_rules)
+    write_trans(processed, args.outfile)
+
+
+if __name__ == "__main__":
+    main()
