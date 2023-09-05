@@ -70,7 +70,8 @@ def get_or_create_rule(old_rules, name):
         should_create = ask_yes_no("Create a rule?")
         return create_rule(name) if should_create else (None, default_rule())
     if len(matches) > 1:
-        raise Exception(f"{name} matched more than one rule: {matches}")
+        print(f"{name} matched more than one rule: {matches}")
+        return (None, default_rule())
     return matches[0]
 
 
