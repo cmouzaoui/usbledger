@@ -78,9 +78,9 @@ def get_or_create_rule(old_rules, name):
 def ask_yes_no(prompt):
     res = input(f"{prompt} (yes/no) ")
     normalized = res.strip().lower()
-    if normalized == "yes":
+    if normalized in ["yes", "y"]:
         return True
-    if normalized == "no":
+    if normalized in ["no", "n"]:
         return False
     print("Unrecognized: ", res)
     return ask_yes_no(prompt)
