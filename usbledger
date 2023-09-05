@@ -102,10 +102,10 @@ def print_transaction(transaction):
 
 def process_entry(transaction, account, processed):
     """use rules to add data to a raw transaction. update rules as needed"""
+    print_transaction(transaction)
     past, old_rules = processed
     pattern, rule = get_or_create_rule(old_rules, transaction.name)
     print("Processing transaction: ")
-    print_transaction(transaction)
     name, save_name = apply_rule(rule["name"], "transaction name")
     if save_name:
         rule["name"] = name
