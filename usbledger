@@ -45,7 +45,8 @@ def get_trans(filename):
 
 
 def create_rule(name):
-    res = input("Provide regex matching name: ")
+    escaped = re.escape(name)
+    res = input(f"Provide regex matching name ['{escaped}']: ")
     if not re.match(res, name):
         print("Rule does not match: ", res)
         return create_rule(name)
