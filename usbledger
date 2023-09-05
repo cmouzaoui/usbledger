@@ -4,6 +4,7 @@ import argparse
 from collections import namedtuple
 import csv
 from datetime import datetime
+from decimal import Decimal
 from functools import reduce
 import json
 import re
@@ -36,7 +37,9 @@ def get_trans(filename):
         reader = csv.reader(infile, quoting=csv.QUOTE_ALL)
         _ = next(reader)
         return [
-            RawTransaction(datetime.fromisoformat(date), name, int(float(amount) * 100))
+            RawTransaction(
+                datetime.fromisoformat(date), name, int(Decimal(amount) * 100)
+            )
             for date, _, name, _, amount in reader
         ]
 
